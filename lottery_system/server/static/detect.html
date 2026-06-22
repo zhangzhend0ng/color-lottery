@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>颜色检测器</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 100vw; height: 100vh; overflow: hidden;
+    background: #000; font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    display: flex; flex-direction: column;
+  }
+
+  #video-container {
+    flex: 1; position: relative; overflow: hidden;
+  }
+  video {
+    width: 100%; height: 100%; object-fit: cover;
+    transform: scaleX(-1);  /* mirror for natural aiming */
+  }
+
+  /* ROI box */
+  #roi {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 150px; height: 150px;
+    border: 3px solid #00ff00;
+    border-radius: 12px;
+    box-shadow: 0 0 20px rgba(0,255,0,0.3);
+    pointer-events: none;
+  }
+
+  /* Detected color indicator */
+  #result {
+    position: absolute; bottom: 60px; left: 0; right: 0;
+    text-align: center;
+  }
+  #result-bar {
+    display: inline-block;
+    padding: 8px 20px;
+    border-radius: 8px;
+    font-size: 18px; font-weight: 700;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    backdrop-filter: blur(8px);
+  }
+  #result-bar .dot {
+    display: inline-block; width: 14px; height: 14px;
+    border-radius: 50%; margin-right: 8px; vertical-align: middle;
+  }
+
+  /* Bottom controls */
+  #controls {
+    padding: 12px 16px; background: #111;
+    display: flex; align-items: center; gap: 12px;
+  }
+  #server-input {
+    flex: 1; padding: 10px 12px;
+    border: 1px solid #333; border-radius: 8px;
+    background: #1a1a1a; color: white; font-size: 14px;
+    outline: none;
+  }
+  #server-input:focus { border-color: #4488FF; }
+  #status {
+    font-size: 13px; color: #888;
+    white-space: nowrap;
+  }
+  #status.connected { color: #44CC44; }
+  #last-sent {
+    font-size: 12px; color: #666;
+    padding: 4px 0;
+  }
+</style>
+</head>
+<body>
+
+<div id="video-container">
+  <video id="cam" autoplay playsinline></video>
+  <div id="roi"></div>
+  <div id="result">
+    <div id="result-bar" style="opacity:0.6">
+      <span id="color-name">等待检测...</span>
+    </div>
+  </div>
+</div>
+
+<div id="last-sent"></div>
+<div id="controls">
+  <input id="server-input" type="text" placeholder="服务器地址 (如 192.168.1.50:5000)" value="localhost:5000">
+  <span id="status">● 未连接</span>
+</div>
+
+<canvas id="hidden-canvas" width="150" height="150" style="display:none"></canvas>
+
+<script>
+// --- gacha color reference (HSV: H 0-360, S 0-100, V 0-100) ---
+var COLOR_REFS = [
+  { name: "gold",   h: 48,  sMin: 60, sMax: 100, vMin: 60, vMax: 100, dot: "#FFD700", label: "SSR" },
+  { name: "red",    h: 0,   sMin: 50, sMax: 100, vMin: 30, vMax: 100, dot: "#FF4444", label: "SR" },
+  { name: "blue",   h: 210, sMin: 40, sMax: 100, vMin: 25, vMax: 100, dot: "#4488FF", label: "R" },
+  { name: "green",  h: 120, sMin: 30, sMax: 100, vMin: 20, vMax: 100, dot: "#44CC44", label: "N" },
+  { name: "yellow", h: 54,  sMin: 50, sMax: 100, vMin: 70, vMax: 100, dot: "#FFCC00", label: "R" },
+  { name: "white",  h: 0,   sMin: 0,  sMax: 15,  vMin: 70, vMax: 100, dot: "#CCCCCC", label: "N" },
+];
+
+var DEBOUNCE_FRAMES = 15;
+var COOLDOWN_MS = 5000;
+
+var currentColor = null;
+var streak = 0;
+var lastTrigger = 0;
+var serverBase = "localhost:5000";
+
+// --- Camera ---
+var video = document.getElementById("cam");
+var statusEl = document.getElementById("status");
+var colorNameEl = document.getElementById("color-name");
+var resultBar = document.getElementById("result-bar");
+var lastSentEl = document.getElementById("last-sent");
+var serverInput = document.getElementById("server-input");
+
+navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: 640, height: 480 } })
+  .then(function(stream) {
+    video.srcObject = stream;
+    video.play();
+    statusEl.textContent = "● 摄像头就绪";
+    statusEl.className = "";
+    requestAnimationFrame(detectLoop);
+  })
+  .catch(function(err) {
+    statusEl.textContent = "● 摄像头不可用";
+    colorNameEl.textContent = "请允许摄像头权限";
+    console.error(err);
+  });
+
+serverInput.addEventListener("input", function() {
+  serverBase = this.value.trim() || "localhost:5000";
+});
+
+// --- Color detection ---
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  var max = Math.max(r, g, b), min = Math.min(r, g, b);
+  var h, s, v = max;
+  var d = max - min;
+  s = max === 0 ? 0 : d / max;
+
+  if (max === min) {
+    h = 0;
+  } else {
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h /= 6;
+  }
+  return [h * 360, s * 100, v * 100];
+}
+
+function matchColor(meanHsv) {
+  var h = meanHsv[0], s = meanHsv[1], v = meanHsv[2];
+  var best = null, bestScore = Infinity;
+
+  for (var i = 0; i < COLOR_REFS.length; i++) {
+    var ref = COLOR_REFS[i];
+
+    // Red wraps around hue 0/360
+    var dh = Math.abs(h - ref.h);
+    if (dh > 180) dh = 360 - dh;
+
+    // Check S and V ranges
+    var sOk = s >= ref.sMin && s <= ref.sMax;
+    var vOk = v >= ref.vMin && v <= ref.vMax;
+
+    var score = dh;
+    if (!sOk) score += 50;
+    if (!vOk) score += 50;
+
+    if (score < bestScore) {
+      bestScore = score;
+      best = ref;
+    }
+  }
+  return best;
+}
+
+function detectLoop() {
+  var canvas = document.getElementById("hidden-canvas");
+  var ctx = canvas.getContext("2d");
+
+  // Draw ROI from center of video
+  var vw = video.videoWidth, vh = video.videoHeight;
+  if (vw === 0) { requestAnimationFrame(detectLoop); return; }
+
+  var sx = vw / 2 - 75, sy = vh / 2 - 75;
+  ctx.drawImage(video, sx, sy, 150, 150, 0, 0, 150, 150);
+
+  var imageData = ctx.getImageData(0, 0, 150, 150);
+  var pixels = imageData.data;
+
+  // Sample center 100x100 only (skip border)
+  var rSum = 0, gSum = 0, bSum = 0, count = 0;
+  var startX = 25, startY = 25, endX = 125, endY = 125;
+  for (var y = startY; y < endY; y++) {
+    for (var x = startX; x < endX; x++) {
+      var idx = (y * 150 + x) * 4;
+      rSum += pixels[idx];
+      gSum += pixels[idx + 1];
+      bSum += pixels[idx + 2];
+      count++;
+    }
+  }
+  var meanR = rSum / count, meanG = gSum / count, meanB = bSum / count;
+  var hsv = rgbToHsv(meanR, meanG, meanB);
+  var matched = matchColor(hsv);
+
+  // Update UI
+  colorNameEl.textContent = matched.label + " " + matched.name;
+  resultBar.style.opacity = "0.85";
+  resultBar.style.borderColor = matched.dot;
+  resultBar.style.boxShadow = "0 0 12px " + matched.dot;
+
+  // Debounce
+  if (matched.name === currentColor) {
+    streak++;
+  } else {
+    currentColor = matched.name;
+    streak = 1;
+  }
+
+  // Trigger
+  var now = Date.now();
+  if (streak >= DEBOUNCE_FRAMES && (now - lastTrigger) > COOLDOWN_MS) {
+    sendResult(matched);
+    lastTrigger = now;
+  }
+
+  requestAnimationFrame(detectLoop);
+}
+
+// --- Send to server ---
+var mappingCache = null;
+
+function loadMapping(callback) {
+  if (mappingCache) { callback(mappingCache); return; }
+  var xhr = new XMLHttpRequest();
+  xhr.open("GET", "http://" + serverBase + "/api/mapping", true);
+  xhr.timeout = 3000;
+  xhr.onload = function() {
+    if (xhr.status === 200) {
+      try { mappingCache = JSON.parse(xhr.responseText); } catch(e) {}
+    }
+    callback(mappingCache);
+  };
+  xhr.onerror = function() { callback(null); };
+  xhr.send();
+}
+
+function sendResult(matched) {
+  loadMapping(function(mapping) {
+    var prize = mapping && mapping[matched.name]
+      ? mapping[matched.name]
+      : { prize: matched.label + "·" + matched.name, emoji: "●", type: matched.label === "SSR" ? "ssr" : "r" };
+
+    var payload = {
+      color: matched.name,
+      prize: prize.prize,
+      emoji: prize.emoji,
+      type: prize.type,
+      confidence: 0.85
+    };
+
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", "http://" + serverBase + "/api/detect", true);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.timeout = 3000;
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        statusEl.textContent = "● 已连接";
+        statusEl.className = "connected";
+        var now = new Date();
+        lastSentEl.textContent = "发送: " + prize.prize
+          + " (" + now.getHours().toString().padStart(2,"0") + ":"
+          + now.getMinutes().toString().padStart(2,"0") + ":"
+          + now.getSeconds().toString().padStart(2,"0") + ")";
+      }
+    };
+    xhr.onerror = function() {
+      statusEl.textContent = "● 服务器无响应";
+      statusEl.className = "";
+    };
+    xhr.send(JSON.stringify(payload));
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>抽卡揭示</title>
+<script src="https://cdn.jsdelivr.net/npm/tsparticles-confetti@2.12.0/tsparticles.confetti.bundle.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 100vw; height: 100vh; overflow: hidden;
+    background: radial-gradient(ellipse at center, #1a0a2e 0%, #0d0015 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  }
+
+  .stars {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 0;
+  }
+  .star {
+    position: absolute;
+    background: white;
+    border-radius: 50%;
+    animation: twinkle var(--dur) ease-in-out infinite;
+    animation-delay: var(--delay);
+    opacity: 0;
+  }
+  @keyframes twinkle {
+    0%, 100% { opacity: 0.2; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.5); }
+  }
+
+  .shooting-star {
+    position: fixed;
+    width: 3px; height: 80px;
+    background: linear-gradient(to bottom, rgba(255,215,0,0), rgba(255,215,0,1));
+    border-radius: 2px;
+    animation: shoot 0.8s ease-out forwards;
+    opacity: 0;
+    z-index: 10;
+  }
+  @keyframes shoot {
+    0% { transform: translate(0, -100vh) rotate(-35deg); opacity: 1; }
+    70% { opacity: 1; }
+    100% { transform: translate(200px, 100vh) rotate(-35deg); opacity: 0; }
+  }
+
+  .burst {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 10px; height: 10px;
+    background: radial-gradient(circle, var(--glow) 0%, transparent 70%);
+    border-radius: 50%;
+    animation: burst 1.2s ease-out forwards;
+    pointer-events: none;
+    z-index: 5;
+  }
+  @keyframes burst {
+    0% { width: 10px; height: 10px; opacity: 0; }
+    30% { width: 600px; height: 600px; opacity: 0.8; }
+    100% { width: 1200px; height: 1200px; opacity: 0; }
+  }
+
+  .result-card {
+    position: relative; z-index: 20;
+    background: rgba(255,255,255,0.08);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 16px;
+    padding: 48px 64px;
+    text-align: center;
+    animation: cardIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  @keyframes cardIn {
+    to { opacity: 1; transform: scale(1); }
+  }
+  .result-card.ssr { border-color: rgba(255,215,0,0.5); box-shadow: 0 0 60px rgba(255,215,0,0.2); }
+  .result-card.sr  { border-color: rgba(155,89,182,0.5); box-shadow: 0 0 40px rgba(155,89,182,0.2); }
+  .result-card.r   { border-color: rgba(68,136,255,0.4); box-shadow: 0 0 24px rgba(68,136,255,0.15); }
+  .result-card.n   { border-color: rgba(255,255,255,0.1); }
+
+  .emoji {
+    font-size: 72px;
+    display: block;
+    animation: emojiBounce 0.8s ease-out;
+  }
+  @keyframes emojiBounce {
+    0% { transform: translateY(-60px); opacity: 0; }
+    60% { transform: translateY(10px); }
+    100% { transform: translateY(0); opacity: 1; }
+  }
+
+  .prize-name {
+    font-size: 36px; font-weight: 700;
+    color: white; margin: 16px 0 8px;
+    text-shadow: 0 0 20px rgba(255,255,255,0.3);
+  }
+  .prize-detail {
+    font-size: 16px; color: rgba(255,255,255,0.5);
+  }
+
+  .rarity-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin-top: 12px;
+  }
+  .rarity-badge.ssr { background: linear-gradient(135deg, #FFD700, #FFA500); color: #1a0a2e; }
+  .rarity-badge.sr  { background: linear-gradient(135deg, #9B59B6, #6C3483); color: white; }
+  .rarity-badge.r   { background: linear-gradient(135deg, #4488FF, #2960CC); color: white; }
+  .rarity-badge.n   { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.5); }
+
+  .idle-hint {
+    position: fixed; bottom: 32px;
+    color: rgba(255,255,255,0.3);
+    font-size: 14px; z-index: 30;
+  }
+</style>
+</head>
+<body>
+
+<div id="starfield" class="stars"></div>
+<div id="card-container"></div>
+<div class="idle-hint">等待摇奖结果...</div>
+
+<script>
+// --- Starfield background ---
+function createStarfield() {
+  const container = document.getElementById("starfield");
+  for (let i = 0; i < 80; i++) {
+    const star = document.createElement("div");
+    star.className = "star";
+    star.style.left = Math.random() * 100 + "%";
+    star.style.top = Math.random() * 100 + "%";
+    star.style.width = star.style.height = (Math.random() * 2 + 1) + "px";
+    star.style.setProperty("--dur", (Math.random() * 3 + 1) + "s");
+    star.style.setProperty("--delay", Math.random() * 4 + "s");
+    container.appendChild(star);
+  }
+}
+createStarfield();
+
+// --- Shooting star (SSR only) ---
+function spawnShootingStar() {
+  const star = document.createElement("div");
+  star.className = "shooting-star";
+  star.style.left = (Math.random() * 80 + 10) + "%";
+  star.style.top = -(Math.random() * 20) + "%";
+  document.body.appendChild(star);
+  star.addEventListener("animationend", function() { star.remove(); });
+}
+
+// --- Radial burst ---
+function spawnBurst(colorHex) {
+  const burst = document.createElement("div");
+  burst.className = "burst";
+  burst.style.setProperty("--glow", colorHex);
+  document.body.appendChild(burst);
+  burst.addEventListener("animationend", function() { burst.remove(); });
+}
+
+// --- Gacha-aligned glow map ---
+const colorGlowMap = {
+  gold: "#FFD700",
+  red: "#9B59B6",   // SR purple glow
+  blue: "#4488FF",   // R blue glow
+  yellow: "#FFAA00",
+  green: "#44CC44",
+  white: "#999999"
+};
+
+// --- Confetti by rarity tier ---
+async function launchConfetti(type) {
+  const defaults = {
+    spread: 360, ticks: 100, gravity: 1, decay: 0.94, startVelocity: 30,
+    colors: ["#FFD700", "#9B59B6", "#4488FF", "#FF6B6B", "#F9CA24"]
+  };
+
+  if (type === "ssr") {
+    await confetti({ ...defaults, particleCount: 200, spread: 100, origin: { x: 0.5, y: 0.4 } });
+    await confetti({ ...defaults, particleCount: 150, spread: 120, origin: { x: 0.3, y: 0.5 } });
+    await confetti({ ...defaults, particleCount: 150, spread: 120, origin: { x: 0.7, y: 0.5 } });
+  } else if (type === "sr") {
+    await confetti({ ...defaults, particleCount: 120, spread: 80, origin: { x: 0.5, y: 0.5 } });
+  } else if (type === "r") {
+    await confetti({ ...defaults, particleCount: 60, spread: 60, origin: { x: 0.5, y: 0.6 } });
+  }
+}
+
+// --- Rarity label ---
+const rarityLabels = { ssr: "★★★★★", sr: "★★★★", r: "★★★", n: "★" };
+
+// --- Reveal result ---
+function showResult(data) {
+  const container = document.getElementById("card-container");
+
+  // SSR: multiple shooting stars
+  if (data.type === "ssr") {
+    for (let i = 0; i < 3; i++) {
+      setTimeout(function() { spawnShootingStar(); }, i * 150);
+    }
+  }
+
+  // Burst glow
+  setTimeout(function() {
+    spawnBurst(colorGlowMap[data.color] || "#ffffff");
+  }, 400);
+
+  // Card
+  const card = document.createElement("div");
+  card.className = "result-card " + (data.type || "r");
+
+  const badge = rarityLabels[data.type] || "";
+  card.innerHTML =
+    '<span class="emoji">' + (data.emoji || "🎉") + "</span>" +
+    '<div class="prize-name">' + (data.prize || "未知奖项") + "</div>" +
+    '<div class="rarity-badge ' + (data.type || "n") + '">' + badge + "</div>" +
+    '<div class="prize-detail">小球颜色: ' + (data.color || "?") + "</div>";
+
+  container.innerHTML = "";
+  container.appendChild(card);
+
+  // Confetti
+  launchConfetti(data.type || "r");
+
+  // SSR bonus shooting star
+  if (data.type === "ssr") {
+    setTimeout(function() { spawnShootingStar(); }, 1200);
+  }
+}
+
+// --- SSE connection with auto-reconnect ---
+function connectSSE() {
+  var es = new EventSource("/events");
+  es.onmessage = function(event) {
+    try {
+      var data = JSON.parse(event.data);
+      showResult(data);
+    } catch (e) {
+      console.error("SSE parse error:", e);
+    }
+  };
+  es.onerror = function() {
+    console.warn("SSE connection lost, retrying in 2s...");
+    es.close();
+    setTimeout(connectSSE, 2000);
+  };
+}
+connectSSE();
+</script>
+</body>
+</html>

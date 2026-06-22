@@ -1,0 +1,8 @@
+{
+  "gold":    {"prize": "SSR·至尊传说", "emoji": "⭐", "type": "ssr"},
+  "red":     {"prize": "SR·稀有奖励",  "emoji": "💜", "type": "sr"},
+  "blue":    {"prize": "R·精良奖励",   "emoji": "💙", "type": "r"},
+  "yellow":  {"prize": "R·幸运参与",   "emoji": "💛", "type": "r"},
+  "green":   {"prize": "N·阳光普照",   "emoji": "🍀", "type": "n"},
+  "white":   {"prize": "N·谢谢参与",   "emoji": "🤍", "type": "n"}
+}
