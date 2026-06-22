@@ -4,8 +4,10 @@ Usage: python make_cert.py [IP]
   If IP is omitted, auto-detects the LAN IP.
   Output: cert.pem + key.pem in the current directory.
 """
+import ipaddress
 import socket
 import sys
+import os
 from datetime import datetime, timedelta, timezone
 
 try:
@@ -30,8 +32,11 @@ def get_lan_ip():
         return "127.0.0.1"
 
 
-def make_cert(ip):
+def make_cert(ip, out_dir=None):
     """Generate cert.pem and key.pem with the given IP in SAN."""
+    if out_dir is None:
+        out_dir = os.getcwd()
+    ip_addr = ipaddress.ip_address(ip)
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
     subject = issuer = x509.Name([
@@ -49,15 +54,17 @@ def make_cert(ip):
         .not_valid_before(datetime.now(timezone.utc))
         .not_valid_after(datetime.now(timezone.utc) + timedelta(days=3650))
         .add_extension(
-            x509.SubjectAlternativeName([x509.IPAddress(ip)]),
+            x509.SubjectAlternativeName([x509.IPAddress(ip_addr)]),
             critical=False,
         )
         .sign(key, hashes.SHA256())
     )
 
-    with open("cert.pem", "wb") as f:
+    cert_path = os.path.join(out_dir, "cert.pem")
+    key_path = os.path.join(out_dir, "key.pem")
+    with open(cert_path, "wb") as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
-    with open("key.pem", "wb") as f:
+    with open(key_path, "wb") as f:
         f.write(key.private_bytes(
             serialization.Encoding.PEM,
             serialization.PrivateFormat.PKCS8,
@@ -65,7 +72,7 @@ def make_cert(ip):
         ))
 
     print(f"Certificate generated for IP: {ip}")
-    print("  cert.pem + key.pem ready")
+    print(f"  {cert_path} + {key_path} ready")
     print("  Phone browser will show a warning -- tap Advanced > Proceed")
 
 

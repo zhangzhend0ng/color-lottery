@@ -174,7 +174,11 @@ def index():
 
 
 if __name__ == "__main__":
-    server_dir = os.path.dirname(os.path.abspath(__file__))
+    # In PyInstaller mode, write cert next to the exe, not inside _MEIPASS
+    if getattr(sys, "frozen", False):
+        server_dir = os.path.dirname(sys.executable)
+    else:
+        server_dir = os.path.dirname(os.path.abspath(__file__))
     cert_path = os.path.join(server_dir, "cert.pem")
     key_path = os.path.join(server_dir, "key.pem")
 
@@ -192,7 +196,7 @@ if __name__ == "__main__":
                 s.close()
             except OSError:
                 pass
-            make_cert(ip)
+            make_cert(ip, out_dir=server_dir)
             use_ssl = True
         except Exception as e:
             print(f"WARNING: Cannot generate SSL cert ({e}). Phone camera may be blocked.")
