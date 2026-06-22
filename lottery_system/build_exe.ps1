@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 Push-Location $PSScriptRoot\server
 
 # 1. Ensure PyInstaller is installed
-python -m pip install pyinstaller flask flask-cors pyopenssl 2>$null
+python -m pip install pyinstaller flask flask-cors pyopenssl cryptography 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Cannot install dependencies. Check Python/pip." -ForegroundColor Red
     Pop-Location; exit 1
