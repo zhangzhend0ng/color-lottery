@@ -5,8 +5,19 @@ import time
 import queue
 import threading
 import os
+import sys
 
-app = Flask(__name__)
+
+def _base_dir():
+    """Return the base directory, works both in dev and PyInstaller."""
+    if getattr(sys, "frozen", False):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+STATIC_DIR = os.path.join(_base_dir(), "static")
+
+app = Flask(__name__, static_folder=STATIC_DIR)
 CORS(app)
 
 clients = []
@@ -149,7 +160,7 @@ def detect_page():
 @app.route("/api/mapping")
 def get_mapping():
     """Serve the color-to-prize mapping for the phone detector."""
-    mapping_path = os.path.join(os.path.dirname(__file__), "..", "color_detector", "color_mapping.json")
+    mapping_path = os.path.join(_base_dir(), "color_mapping.json")
     try:
         with open(mapping_path, "r", encoding="utf-8") as f:
             return jsonify(json.load(f))
