@@ -131,8 +131,15 @@ navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width:
   })
   .catch(function(err) {
     statusEl.textContent = "● 摄像头不可用";
-    colorNameEl.textContent = "请允许摄像头权限";
-    console.error(err);
+    if (err.name === "NotAllowedError") {
+      colorNameEl.textContent = "请允许摄像头权限后刷新";
+    } else if (err.name === "NotFoundError") {
+      colorNameEl.textContent = "未检测到摄像头";
+    } else if (err.name === "NotReadableError") {
+      colorNameEl.textContent = "摄像头被其他应用占用";
+    } else {
+      colorNameEl.textContent = err.name + ": 请使用 HTTPS 访问";
+    }
   });
 
 serverInput.addEventListener("input", function() {

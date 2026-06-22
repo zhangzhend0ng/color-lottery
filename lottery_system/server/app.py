@@ -174,8 +174,14 @@ def index():
 
 
 if __name__ == "__main__":
+    import ssl
     print("=== Lottery Server Starting ===")
-    print("  Frontend: http://localhost:5000")
-    print("  SSE:      http://localhost:5000/events")
-    print("  Detect:   POST http://localhost:5000/api/detect")
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    print("  Display:  https://localhost:5000")
+    print("  Phone:    https://<this-PC-IP>:5000/detect")
+    print("  (Ignore browser cert warning -- it is safe on LAN)")
+    try:
+        app.run(host="0.0.0.0", port=5000, debug=False, threaded=True, ssl_context="adhoc")
+    except Exception:
+        print("WARNING: SSL cert generation failed, falling back to HTTP")
+        print("  Phone camera may not work on iOS without HTTPS")
+        app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
