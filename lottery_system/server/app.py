@@ -174,44 +174,8 @@ def index():
 
 
 if __name__ == "__main__":
-    # In PyInstaller mode, write cert next to the exe, not inside _MEIPASS
-    if getattr(sys, "frozen", False):
-        server_dir = os.path.dirname(sys.executable)
-    else:
-        server_dir = os.path.dirname(os.path.abspath(__file__))
-    cert_path = os.path.join(server_dir, "cert.pem")
-    key_path = os.path.join(server_dir, "key.pem")
-
-    use_ssl = False
-    if not (os.path.exists(cert_path) and os.path.exists(key_path)):
-        # Auto-generate cert
-        try:
-            from make_cert import make_cert
-            ip = "127.0.0.1"
-            try:
-                import socket
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                s.connect(("8.8.8.8", 80))
-                ip = s.getsockname()[0]
-                s.close()
-            except OSError:
-                pass
-            make_cert(ip, out_dir=server_dir)
-            use_ssl = True
-        except Exception as e:
-            print(f"WARNING: Cannot generate SSL cert ({e}). Phone camera may be blocked.")
-    else:
-        use_ssl = True
-
-    proto = "https" if use_ssl else "http"
     print("=== Lottery Server Starting ===")
-    print(f"  Display:  {proto}://localhost:5000")
-    print(f"  Phone:    {proto}://<this-PC-IP>:5000/detect")
-    if use_ssl:
-        print("  (Phone browser: tap Advanced -> Proceed to bypass cert warning)")
-
-    if use_ssl:
-        app.run(host="0.0.0.0", port=5000, debug=False, threaded=True,
-                ssl_context=(cert_path, key_path))
-    else:
-        app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    print("  Display:  http://localhost:5000")
+    print("  Phone:    http://<this-PC-IP>:5000/detect")
+    print("  Tip: Use Firefox on phone, or Chrome with flag set (see page hint)")
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

@@ -98,7 +98,11 @@ python app.py
 
 **手机**（推荐，无需 Python）：
 
-浏览器打开 `http://<电脑IP>:5000/detect`，摄像头对准摇奖机出球口，颜色识别在手机上完成并自动发送结果到服务器。
+用 **Firefox** 浏览器打开 `http://<电脑IP>:5000/detect`（Firefox 无需配置即可使用摄像头）。
+
+Chrome/Edge 用户需设置白名单：地址栏输入 `chrome://flags/#unsafely-treat-insecure-origin-as-secure`，添加服务器地址，改为 Enabled 后重启浏览器。
+
+摄像头对准摇奖机出球口，颜色识别在手机上完成并自动发送结果到服务器。
 
 **电脑**（USB 摄像头）：
 
