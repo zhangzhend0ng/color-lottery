@@ -17,10 +17,9 @@
   }
   video {
     width: 100%; height: 100%; object-fit: cover;
-    transform: scaleX(-1);  /* mirror for natural aiming */
+    transform: scaleX(-1);
   }
 
-  /* ROI box */
   #roi {
     position: absolute;
     top: 50%; left: 50%;
@@ -32,7 +31,6 @@
     pointer-events: none;
   }
 
-  /* Detected color indicator */
   #result {
     position: absolute; bottom: 60px; left: 0; right: 0;
     text-align: center;
@@ -46,9 +44,26 @@
     color: white;
     backdrop-filter: blur(8px);
   }
-  #result-bar .dot {
-    display: inline-block; width: 14px; height: 14px;
-    border-radius: 50%; margin-right: 8px; vertical-align: middle;
+
+  /* Start overlay */
+  #start-overlay {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 100;
+  }
+  #start-btn {
+    padding: 16px 48px;
+    font-size: 20px; font-weight: 700;
+    background: #4488FF; color: white;
+    border: none; border-radius: 12px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #start-btn:active { background: #2960CC; }
+  #start-hint {
+    color: #888; font-size: 14px; margin-top: 16px;
   }
 
   /* Bottom controls */
@@ -68,6 +83,7 @@
     white-space: nowrap;
   }
   #status.connected { color: #44CC44; }
+  #status.camera-ready { color: #FFCC00; }
   #last-sent {
     font-size: 12px; color: #666;
     padding: 4px 0;
@@ -77,8 +93,14 @@
 <body>
 
 <div id="video-container">
-  <video id="cam" autoplay playsinline></video>
+  <video id="cam" autoplay playsinline muted></video>
   <div id="roi"></div>
+
+  <div id="start-overlay">
+    <button id="start-btn">开启摄像头</button>
+    <div id="start-hint"></div>
+  </div>
+
   <div id="result">
     <div id="result-bar" style="opacity:0.6">
       <span id="color-name">等待检测...</span>
@@ -87,7 +109,6 @@
 </div>
 
 <div id="last-sent"></div>
-<div id="hint-box" style="display:none; padding:12px 16px; background:#1a1a1a; color:#ccc; font-size:12px; line-height:1.6; border-top:1px solid #333;"></div>
 <div id="controls">
   <input id="server-input" type="text" placeholder="服务器地址 (如 192.168.1.50:5000)" value="localhost:5000">
   <span id="status">● 未连接</span>
@@ -96,7 +117,6 @@
 <canvas id="hidden-canvas" width="150" height="150" style="display:none"></canvas>
 
 <script>
-// --- gacha color reference (HSV: H 0-360, S 0-100, V 0-100) ---
 var COLOR_REFS = [
   { name: "gold",   h: 48,  sMin: 60, sMax: 100, vMin: 60, vMax: 100, dot: "#FFD700", label: "SSR" },
   { name: "red",    h: 0,   sMin: 50, sMax: 100, vMin: 30, vMax: 100, dot: "#FF4444", label: "SR" },
@@ -113,38 +133,54 @@ var currentColor = null;
 var streak = 0;
 var lastTrigger = 0;
 var serverBase = "localhost:5000";
+var detecting = false;
 
-// --- Camera ---
 var video = document.getElementById("cam");
 var statusEl = document.getElementById("status");
 var colorNameEl = document.getElementById("color-name");
 var resultBar = document.getElementById("result-bar");
 var lastSentEl = document.getElementById("last-sent");
 var serverInput = document.getElementById("server-input");
-
-navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: 640, height: 480 } })
-  .then(function(stream) {
-    video.srcObject = stream;
-    video.play();
-    statusEl.textContent = "● 摄像头就绪";
-    statusEl.className = "";
-    requestAnimationFrame(detectLoop);
-  })
-  .catch(function(err) {
-    statusEl.textContent = "● 摄像头不可用";
-    if (err.name === "NotAllowedError") {
-      colorNameEl.textContent = "请允许摄像头权限后刷新";
-    } else if (err.name === "NotFoundError") {
-      colorNameEl.textContent = "未检测到摄像头";
-    } else if (err.name === "NotReadableError") {
-      colorNameEl.textContent = "摄像头被其他应用占用";
-    } else {
-      colorNameEl.textContent = err.name + ": 请使用 HTTPS 访问";
-    }
-  });
+var startBtn = document.getElementById("start-btn");
+var startHint = document.getElementById("start-hint");
+var startOverlay = document.getElementById("start-overlay");
 
 serverInput.addEventListener("input", function() {
   serverBase = this.value.trim() || "localhost:5000";
+});
+
+// --- Start camera on button tap (required by mobile browsers) ---
+startBtn.addEventListener("click", function() {
+  startBtn.textContent = "正在开启...";
+  startBtn.disabled = true;
+  startHint.textContent = "";
+
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
+    audio: false
+  })
+  .then(function(stream) {
+    video.srcObject = stream;
+    video.play();
+    startOverlay.style.display = "none";
+    statusEl.textContent = "● 摄像头就绪";
+    statusEl.className = "camera-ready";
+    detecting = true;
+    requestAnimationFrame(detectLoop);
+  })
+  .catch(function(err) {
+    startBtn.textContent = "重试";
+    startBtn.disabled = false;
+    if (err.name === "NotAllowedError") {
+      startHint.textContent = "请允许摄像头权限后重试";
+    } else if (err.name === "NotFoundError") {
+      startHint.textContent = "未检测到摄像头";
+    } else if (err.name === "NotReadableError") {
+      startHint.textContent = "摄像头被占用，请关闭其他应用";
+    } else {
+      startHint.textContent = err.name + " - 请使用 HTTPS 访问";
+    }
+  });
 });
 
 // --- Color detection ---
@@ -154,10 +190,8 @@ function rgbToHsv(r, g, b) {
   var h, s, v = max;
   var d = max - min;
   s = max === 0 ? 0 : d / max;
-
-  if (max === min) {
-    h = 0;
-  } else {
+  if (max === min) { h = 0; }
+  else {
     switch (max) {
       case r: h = (g - b) / d + (g < b ? 6 : 0); break;
       case g: h = (b - r) / d + 2; break;
@@ -171,53 +205,37 @@ function rgbToHsv(r, g, b) {
 function matchColor(meanHsv) {
   var h = meanHsv[0], s = meanHsv[1], v = meanHsv[2];
   var best = null, bestScore = Infinity;
-
   for (var i = 0; i < COLOR_REFS.length; i++) {
     var ref = COLOR_REFS[i];
-
-    // Red wraps around hue 0/360
     var dh = Math.abs(h - ref.h);
     if (dh > 180) dh = 360 - dh;
-
-    // Check S and V ranges
     var sOk = s >= ref.sMin && s <= ref.sMax;
     var vOk = v >= ref.vMin && v <= ref.vMax;
-
     var score = dh;
     if (!sOk) score += 50;
     if (!vOk) score += 50;
-
-    if (score < bestScore) {
-      bestScore = score;
-      best = ref;
-    }
+    if (score < bestScore) { bestScore = score; best = ref; }
   }
   return best;
 }
 
 function detectLoop() {
+  if (!detecting) return;
   var canvas = document.getElementById("hidden-canvas");
   var ctx = canvas.getContext("2d");
-
-  // Draw ROI from center of video
   var vw = video.videoWidth, vh = video.videoHeight;
   if (vw === 0) { requestAnimationFrame(detectLoop); return; }
 
   var sx = vw / 2 - 75, sy = vh / 2 - 75;
   ctx.drawImage(video, sx, sy, 150, 150, 0, 0, 150, 150);
-
   var imageData = ctx.getImageData(0, 0, 150, 150);
   var pixels = imageData.data;
 
-  // Sample center 100x100 only (skip border)
   var rSum = 0, gSum = 0, bSum = 0, count = 0;
-  var startX = 25, startY = 25, endX = 125, endY = 125;
-  for (var y = startY; y < endY; y++) {
-    for (var x = startX; x < endX; x++) {
+  for (var y = 25; y < 125; y++) {
+    for (var x = 25; x < 125; x++) {
       var idx = (y * 150 + x) * 4;
-      rSum += pixels[idx];
-      gSum += pixels[idx + 1];
-      bSum += pixels[idx + 2];
+      rSum += pixels[idx]; gSum += pixels[idx + 1]; bSum += pixels[idx + 2];
       count++;
     }
   }
@@ -225,21 +243,12 @@ function detectLoop() {
   var hsv = rgbToHsv(meanR, meanG, meanB);
   var matched = matchColor(hsv);
 
-  // Update UI
   colorNameEl.textContent = matched.label + " " + matched.name;
   resultBar.style.opacity = "0.85";
-  resultBar.style.borderColor = matched.dot;
-  resultBar.style.boxShadow = "0 0 12px " + matched.dot;
 
-  // Debounce
-  if (matched.name === currentColor) {
-    streak++;
-  } else {
-    currentColor = matched.name;
-    streak = 1;
-  }
+  if (matched.name === currentColor) { streak++; }
+  else { currentColor = matched.name; streak = 1; }
 
-  // Trigger
   var now = Date.now();
   if (streak >= DEBOUNCE_FRAMES && (now - lastTrigger) > COOLDOWN_MS) {
     sendResult(matched);
@@ -255,7 +264,7 @@ var mappingCache = null;
 function loadMapping(callback) {
   if (mappingCache) { callback(mappingCache); return; }
   var xhr = new XMLHttpRequest();
-  xhr.open("GET", "http://" + serverBase + "/api/mapping", true);
+  xhr.open("GET", "https://" + serverBase + "/api/mapping", true);
   xhr.timeout = 3000;
   xhr.onload = function() {
     if (xhr.status === 200) {
@@ -271,7 +280,7 @@ function sendResult(matched) {
   loadMapping(function(mapping) {
     var prize = mapping && mapping[matched.name]
       ? mapping[matched.name]
-      : { prize: matched.label + "·" + matched.name, emoji: "●", type: matched.label === "SSR" ? "ssr" : "r" };
+      : { prize: matched.label + " " + matched.name, emoji: "●", type: matched.label === "SSR" ? "ssr" : "r" };
 
     var payload = {
       color: matched.name,
@@ -282,7 +291,7 @@ function sendResult(matched) {
     };
 
     var xhr = new XMLHttpRequest();
-    xhr.open("POST", "http://" + serverBase + "/api/detect", true);
+    xhr.open("POST", "https://" + serverBase + "/api/detect", true);
     xhr.setRequestHeader("Content-Type", "application/json");
     xhr.timeout = 3000;
     xhr.onload = function() {
